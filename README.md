@@ -3,6 +3,10 @@ rusty-dotfiler is a tool that will read a `filemap.toml` and hardlink a list of 
 Its' intended use is to link dotfiles from a central directory (e.g a git repo to keep synced over multiple devices) to their destinations in the filesystem, so that updates to the source files will be automatically present where they're needed.
 After populating `filemap.toml` with your configs and their paths, you can run `./rusty-dotfiler check` to see whether they're alredy hardlinked, and `./rusty-dotfiler install` to remove the defaults if they're present and hardlink your configs.
 
+#### Building
+Make sure you have a [rust toolchain](https://rustup.rs/) installed.
+`cargo build --release` and copy the binary and config files from `./target/release` to somewhere on your $PATH.
+
 
 #### But why?
 
