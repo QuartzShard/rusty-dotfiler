@@ -1,0 +1,11 @@
+## Fill these arrays with "Name", "./path/to/file/in/central/repo","/path/on/system"
+## Beware "~" home dir shorthand, will point to /root if you're using sudo to get round permissions issues
+
+# "Example Config"
+names = [] 
+
+#"./example/config.toml" if running from your dotfiles dir, /home/you/dotfiles/example/config if running from anywhere
+source_paths = [] 
+
+#"~/.config/example/config.toml" if running as you, /home/you/.config/example/config.toml if running as root (e.g to install files to etc)
+install_paths = [] 
