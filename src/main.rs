@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use dirs::home_dir;
-
+use sudo::with_env;
 use clap::{Parser, Subcommand};
 
 pub mod filemap;
@@ -78,7 +78,8 @@ fn install(filemap: Filemap) {
             Ok(_res) => println!("Linked {} \nto {}", source_path.display(),install_path.display()),
             Err(error) => match error.kind() {
                 ErrorKind::NotFound => println!("No file at {}, skipping, ", source_path.display()),
-                ErrorKind::PermissionDenied => println!("Permission denied for {}, make sure you can access both source and install directories (Beware '~' if running as root) ", install_path.display()),
+                ErrorKind::PermissionDenied => {with_env(&["HOME"]).unwrap();},
+                // println!("Permission denied for {}, make sure you can access both source and install directories (Beware '~' if running as root) ", install_path.display()),
                 other_error => panic!("{}", other_error),
             }
         };
