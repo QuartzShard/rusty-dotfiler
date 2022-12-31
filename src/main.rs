@@ -2,6 +2,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::process;
 
 use dirs::home_dir;
 
@@ -15,7 +16,7 @@ use serde_derive::{Deserialize, Serialize};
 struct Cli {
     /// Sets a config file other than ./filemap
     #[arg(short, long, value_name = "FILE")]
-    config: Option<PathBuf>,
+    config: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -39,13 +40,13 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
-    let filemap: &Path;
+    let filemap: String;
     if let Some(config) = cli.config.as_deref() {
-        filemap = config;
+        filemap = String::from(config);
     } else {
-        filemap = Path::new("./filemap.toml");
+        filemap = String::from("./filemap.toml");
     }
-    let filemap: Filemap = get_filemap(filemap);
+    let filemap: Filemap = get_filemap(&clean_path(filemap));
     match &cli.command {
         Some(Commands::Install {}) => install(filemap),
         Some(Commands::Check {}) => check(filemap),
@@ -118,12 +119,35 @@ fn is_linked(a: Option<&str>, b: Option<&str>) -> bool {
 }
 
 fn get_filemap(filemap: &Path) -> Filemap {
-    println!(
-        "Using filemap at {}",
-        filemap.canonicalize().unwrap().display()
-    );
-    let filemap = fs::read_to_string(filemap).expect("Can't read file");
-    toml::from_str(&filemap).unwrap()
+    // println!(
+    //     "Using filemap at {}",
+    //     filemap.canonicalize().unwrap().display()
+    // );
+    let filemap_read: String = match fs::read_to_string(filemap) {
+        Ok(string) => string,
+        Err(error) => match error.kind() {
+            ErrorKind::NotFound => gen_filemap(filemap),
+            other_error => panic!("{}", other_error)
+        }
+    };
+    let filemap_parsed: Filemap = toml::from_str(&filemap_read).unwrap();
+    if filemap_parsed.names.len() == 0 || filemap_parsed.names[0] == "" {
+        println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", filemap.display());
+        process::exit(0);
+    } else {
+        filemap_parsed
+    }
+}
+
+fn gen_filemap(filemap: &Path) -> String {
+    let default_filemap = Filemap {
+        names: vec!["".to_string()],
+        source_paths: vec!["".to_string()],
+        install_paths: vec!["".to_string()],
+    };
+    let filemap_read = toml::to_string(&default_filemap).unwrap();
+    fs::write(filemap,&filemap_read).unwrap();
+    return filemap_read
 }
 
 fn clean_path(mut target: String) -> PathBuf {
