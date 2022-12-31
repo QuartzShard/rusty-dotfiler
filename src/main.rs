@@ -1,6 +1,8 @@
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{self, Result, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::vec::IntoIter;
+use std::process;
 
 use dirs::home_dir;
 use sudo::with_env;
@@ -31,22 +33,25 @@ enum Commands {
     Install {},
     /// Checks filesystem from unlinked config files, prints differences
     Check {},
+    /// Reads the subdirectories of the currect directory and adds files to the filemap
+    Configure {},
 }
 
 // Parse options, run command
 fn main() {
     let cli = Cli::parse();
 
-    let filemap: String;
+    let filemap_path: String;
     if let Some(config) = cli.config.as_deref() {
-        filemap = String::from(config);
+        filemap_path = String::from(config);
     } else {
-        filemap = String::from("./filemap.toml");
+        filemap_path = String::from("./filemap.toml");
     }
-    let filemap: Filemap = Filemap::from(&clean_path(filemap));
+    let filemap: Filemap = Filemap::from(&clean_path(filemap_path.clone()));
     match &cli.command {
-        Some(Commands::Install {}) => install(filemap),
-        Some(Commands::Check {}) => check(filemap),
+        Some(Commands::Install {}) => install(filemap, &clean_path(filemap_path)),
+        Some(Commands::Check {}) => check(filemap, &clean_path(filemap_path)),
+        Some(Commands::Configure {}) => configure(filemap, &clean_path(filemap_path)),
         None => {}
     }
 }
@@ -54,7 +59,11 @@ fn main() {
 ///// Commands
 
 // Link files in list to install dirs
-fn install(filemap: Filemap) {
+fn install(filemap: Filemap, config_path: &Path) {
+    if filemap.check_empty() {
+        println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
+        process::exit(0);
+    }
     println!("Installing your dotfiles:");
     for i in 0..filemap.names.len() {
         println!(
@@ -87,7 +96,11 @@ fn install(filemap: Filemap) {
 }
 
 // Check filelist for links
-fn check(filemap: Filemap) {
+fn check(filemap: Filemap, config_path: &Path) {
+    if filemap.check_empty() {
+        println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
+        process::exit(0);
+    }
     println!("Checking your dotfiles: ");
     let mut all_clear: bool = true;
     for i in 0..filemap.names.len() {
@@ -107,6 +120,54 @@ fn check(filemap: Filemap) {
     }
 }
 
+fn configure(mut filemap: Filemap, config_path: &Path) {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+
+    filemap.names.clear();
+    filemap.install_paths.clear();
+    filemap.source_paths.clear();
+
+    for path in read_dir_tree(".").unwrap() {
+        let mut entry_name = String::new();
+        let mut entry_install_path = String::new();
+
+        writeln!(handle, "Found:  {}", path).unwrap();
+        write!(handle, "Please enter a name for the config, or ! to skip: ").unwrap();
+        handle.flush().unwrap();
+
+        stdin.read_line(&mut entry_name).expect("Can't read input!");
+        if entry_name.trim() == "!" {
+            continue;
+        }
+        write!(handle, "Please enter a path to link to, or ! to skip: ").unwrap();
+        handle.flush().unwrap();
+
+        stdin.read_line(&mut entry_install_path).expect("Can't read input!");
+        if entry_install_path == "!" {
+            continue;
+        }
+        let entry_name: String = String::from(entry_name.trim());
+        let entry_install_path: String = String::from(entry_install_path.trim());
+
+        filemap.names.push(entry_name);
+        filemap.install_paths.push(entry_install_path);
+        filemap.source_paths.push(path.clone());
+    }
+    match filemap.save(config_path) {
+        Ok(()) => {
+            writeln!(handle, "Saved config at {}", config_path.display()).unwrap();
+            handle.flush().unwrap();
+        },
+        Err(_) => {
+            writeln!(handle, "Failed to save config at {}", config_path.display()).unwrap();
+            handle.flush().unwrap();
+        }
+    }
+    
+}
+
 ///// Functions
 
 // Ensure path is canonical & parent is real
@@ -123,4 +184,31 @@ fn clean_path(mut target: String) -> PathBuf {
         canon.push(path.file_name().unwrap());
         return canon;
     }
+}
+
+fn read_dir_tree(path: &str) -> Result<IntoIter<String>> {
+    let mut paths: Vec<String> = vec![];
+    paths = read_dir_tree_branch(Path::new(path), paths)?;
+    Ok(paths.into_iter())
+    
+}
+
+fn read_dir_tree_branch(path: &Path, mut paths: Vec<String>) -> Result<Vec<String>> {
+    for entry in fs::read_dir(path)? {
+        let entrypath = entry?.path();
+        if entrypath.is_dir() {
+            if &entrypath.file_name().unwrap().to_str().unwrap()[0..1] == "."{
+                println!("Skipping hidden dir: {}", entrypath.display());
+                continue;
+            }
+            paths = read_dir_tree_branch(&entrypath, paths)?;
+            continue;
+        }
+        if entrypath.file_name().unwrap().to_str().unwrap() == "filemap.toml"{
+            continue;
+        }
+        let pathstr = String::from(entrypath.to_str().unwrap());
+        paths.push(pathstr);
+    }
+    Ok(paths)
 }

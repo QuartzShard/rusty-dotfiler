@@ -2,7 +2,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path,PathBuf};
 use std::os::linux::fs::MetadataExt;
-use std::process;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -14,15 +13,18 @@ pub struct Filemap {
 }
 
 impl Filemap {  
-    pub fn new(filemap: &Path) -> String {
+    pub fn new(filemap: &Path) -> Filemap {
         let default_filemap = Filemap {
             names: vec!["".to_string()],
             source_paths: vec!["".to_string()],
             install_paths: vec!["".to_string()],
         };
-        let filemap_read = toml::to_string(&default_filemap).unwrap();
-        fs::write(filemap,&filemap_read).unwrap();
-        return filemap_read
+        default_filemap.save(filemap).unwrap();
+        return default_filemap
+    }
+    pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
+        let filemap_read = toml::to_string(&self).unwrap();
+        fs::write(path,&filemap_read)
     }
     pub fn is_hard_linked(a: Option<&str>, b: Option<&str>) -> bool {
         let meta_a = match fs::metadata(a.unwrap()) {
@@ -36,6 +38,12 @@ impl Filemap {
     
         return meta_a.st_ino() == meta_b.st_ino();
     }
+    pub fn check_empty(&self) -> bool {
+        if self.names.len() == 0 || self.names[0] == "" {
+            return true;
+        }
+        false
+    }
 }
 
 impl From<&PathBuf> for Filemap {
@@ -43,16 +51,12 @@ impl From<&PathBuf> for Filemap {
         let filemap_read: String = match fs::read_to_string(filemap) {
             Ok(string) => string,
             Err(error) => match error.kind() {
-                ErrorKind::NotFound => Filemap::new(filemap),
+                ErrorKind::NotFound => {
+                    return Filemap::new(filemap);
+                },
                 other_error => panic!("{}", other_error)
             }
         };
-        let filemap_parsed: Filemap = toml::from_str(&filemap_read).unwrap();
-        if filemap_parsed.names.len() == 0 || filemap_parsed.names[0] == "" {
-            println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", filemap.display());
-            process::exit(0);
-        } else {
-            filemap_parsed
-        }
+        toml::from_str(&filemap_read).unwrap()
     }
 }
