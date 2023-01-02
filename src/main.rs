@@ -61,7 +61,8 @@ fn main() {
 // Link files in list to install dirs
 fn install(filemap: Filemap, config_path: &Path) {
     if filemap.check_empty() {
-        println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
+        println!("No files specified! Run `rusty-dotfiler configure` to generate a filemap from your dotfiles."); 
+        println!("Alternatively, manually edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
         process::exit(0);
     }
     println!("Installing your dotfiles:");
@@ -98,7 +99,8 @@ fn install(filemap: Filemap, config_path: &Path) {
 // Check filelist for links
 fn check(filemap: Filemap, config_path: &Path) {
     if filemap.check_empty() {
-        println!("No files specified! Edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
+        println!("No files specified! Run `rusty-dotfiler configure` to generate a filemap from your dotfiles."); 
+        println!("Alternatively, manually edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
         process::exit(0);
     }
     println!("Checking your dotfiles: ");

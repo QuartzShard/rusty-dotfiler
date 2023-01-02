@@ -1,7 +1,9 @@
 use std::fs;
+use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path,PathBuf};
 use std::os::linux::fs::MetadataExt;
+use std::process;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -19,19 +21,32 @@ impl Filemap {
             source_paths: vec!["".to_string()],
             install_paths: vec!["".to_string()],
         };
-        default_filemap.save(filemap).unwrap();
+        match default_filemap.save(filemap) {
+            Ok(()) => (),
+            Err(error) => println!("{}", error)
+        };
         return default_filemap
     }
-    pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        let filemap_read = toml::to_string(&self).unwrap();
-        fs::write(path,&filemap_read)
+    pub fn save(&self, path: &Path) -> Result<(), SaveError> {
+        toml::to_string(&self).map_err(|_| SaveError)
+            .and_then(|filemap_read| {
+                fs::write(path,&filemap_read).map_err(|_| SaveError)
+            })
     }
     pub fn is_hard_linked(a: Option<&str>, b: Option<&str>) -> bool {
-        let meta_a = match fs::metadata(a.unwrap()) {
+        let a = match a {
+            Some(s) => s,
+            None => return false
+        };
+        let b = match b {
+            Some(s) => s,
+            None => return false
+        };
+        let meta_a = match fs::metadata(a) {
             Ok(meta) => meta,
             Err(_error) => return false,
         };
-        let meta_b = match fs::metadata(b.unwrap()) {
+        let meta_b = match fs::metadata(b) {
             Ok(meta) => meta,
             Err(_error) => return false,
         };
@@ -54,9 +69,28 @@ impl From<&PathBuf> for Filemap {
                 ErrorKind::NotFound => {
                     return Filemap::new(filemap);
                 },
+                ErrorKind::PermissionDenied => {
+                    println!("No permissions to open the filemap. Please check file permissions and try again");
+                    process::exit(0);
+                },
                 other_error => panic!("{}", other_error)
             }
         };
-        toml::from_str(&filemap_read).unwrap()
+        match toml::from_str(&filemap_read) {
+            Ok(r) => r,
+            Err(error) => {
+                println!("Unable to parse filemap, generating new one: {}", error);
+                return Filemap::new(filemap);
+            }
+        }
     }
 }
+
+pub struct SaveError;
+
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Can't save filemap.")
+    }
+}
+
