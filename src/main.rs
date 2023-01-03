@@ -37,7 +37,7 @@ enum Commands {
 }
 
 // Parse options, run command
-fn main() -> Result<(), SimpleRunError> {
+fn main() -> () {
     let cli = Cli::parse();
 
     let filemap_path: String;
@@ -51,11 +51,15 @@ fn main() -> Result<(), SimpleRunError> {
         PathBuf::from("./filemap.toml")
     });
     let filemap: Filemap = Filemap::from(filemap_path);
-    match &cli.command {
+    let res = match &cli.command {
         Some(Commands::Install {}) => install(filemap, filemap_path),
         Some(Commands::Check {}) => check(filemap, filemap_path),
         Some(Commands::Configure {}) => configure(filemap, filemap_path),
         None => Ok(()),
+    };
+    match res {
+        Ok(_) => (),
+        Err(error) => println!("Encountered an error: {}", error.to_string()),
     }
 }
 
@@ -197,12 +201,13 @@ fn configure(mut filemap: Filemap, config_path: &Path) -> Result<(), SimpleRunEr
         if entry_install_path == "!" {
             continue;
         }
-        let entry_name: String = clean_path(String::from(entry_name.trim()))
+
+        let entry_name: String = String::from(entry_name.trim());
+        let entry_install_path: String = clean_path(String::from(entry_install_path.trim()))
             .ok_or_else(|| SimpleRunError::UnparsableFilepath)?
             .to_str()
             .ok_or_else(|| SimpleRunError::InvalidFilename)?
             .to_owned();
-        let entry_install_path: String = String::from(entry_install_path.trim());
 
         filemap.names.push(entry_name);
         filemap.install_paths.push(entry_install_path);
