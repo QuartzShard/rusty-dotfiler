@@ -7,6 +7,8 @@ use std::process;
 
 use serde_derive::{Deserialize, Serialize};
 
+use crate::error::SimpleRunError;
+
 #[derive(Serialize, Deserialize)]
 pub struct Filemap {
     pub names: Vec<String>,
@@ -27,10 +29,12 @@ impl Filemap {
         };
         return default_filemap;
     }
-    pub fn save(&self, path: &Path) -> Result<(), SaveError> {
+    pub fn save(&self, path: &Path) -> Result<(), SimpleRunError> {
         toml::to_string(&self)
-            .map_err(|_| SaveError)
-            .and_then(|filemap_read| fs::write(path, &filemap_read).map_err(|_| SaveError))
+            .map_err(|_| SimpleRunError::SaveError)
+            .and_then(|filemap_read| {
+                fs::write(path, &filemap_read).map_err(|_| SimpleRunError::SaveError)
+            })
     }
     pub fn is_hard_linked(a: Option<&str>, b: Option<&str>) -> bool {
         let a = match a {
@@ -82,13 +86,5 @@ impl From<&PathBuf> for Filemap {
                 return Filemap::new(filemap);
             }
         }
-    }
-}
-
-pub struct SaveError;
-
-impl fmt::Display for SaveError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Can't save filemap.")
     }
 }
