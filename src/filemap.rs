@@ -1,4 +1,3 @@
-use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
 use std::os::linux::fs::MetadataExt;
