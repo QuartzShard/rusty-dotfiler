@@ -1,7 +1,7 @@
+use core::fmt;
 use std::fs;
-use std::io::{self, Error, ErrorKind, Result, Write};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::process;
 use std::vec::IntoIter;
 
 use clap::{Parser, Subcommand};
@@ -37,7 +37,7 @@ enum Commands {
 }
 
 // Parse options, run command
-fn main() -> Result<()> {
+fn main() -> Result<(), SimpleRunError> {
     let cli = Cli::parse();
 
     let filemap_path: String;
@@ -62,11 +62,11 @@ fn main() -> Result<()> {
 ///// Commands
 
 // Link files in list to install dirs
-fn install(filemap: Filemap, config_path: &Path) -> Result<()> {
+fn install(filemap: Filemap, config_path: &Path) -> Result<(), SimpleRunError> {
     if filemap.check_empty() {
         println!("No files specified! Run `rusty-dotfiler configure` to generate a filemap from your dotfiles.");
         println!("Alternatively, manually edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
-        process::exit(0);
+        return Err(SimpleRunError::new("No files specified.".to_owned()));
     }
     println!("Installing your dotfiles:");
     for i in 0..filemap.names.len() {
@@ -106,28 +106,28 @@ fn install(filemap: Filemap, config_path: &Path) -> Result<()> {
                 install_path.display()
             ),
             Err(error) => match error.kind() {
-                ErrorKind::NotFound => println!("No file at {}, skipping, ", source_path.display()),
-                ErrorKind::PermissionDenied => {
-                    match with_env(&["HOME"]) {
-                        Ok(_) => (),
-                        Err(_error) => {
-                            println!("Can't `sudo` to link {}, skipping", source_path.display())
-                        }
-                    };
+                ErrorKind::NotFound => {
+                    println!("No file at {}, skipping, ", source_path.display())
                 }
-                _other_error => return Err(error),
+                ErrorKind::PermissionDenied => match with_env(&["HOME"]) {
+                    Ok(_) => (),
+                    Err(_error) => {
+                        println!("Can't `sudo` to link {}, skipping", source_path.display())
+                    }
+                },
+                _other_error => println!("Unexpected error creating hardlink, skipping"),
             },
-        };
+        }
     }
     Ok(())
 }
 
 // Check filelist for links
-fn check(filemap: Filemap, config_path: &Path) -> Result<()> {
+fn check(filemap: Filemap, config_path: &Path) -> Result<(), SimpleRunError> {
     if filemap.check_empty() {
         println!("No files specified! Run `rusty-dotfiler configure` to generate a filemap from your dotfiles.");
         println!("Alternatively, manually edit your config at {}\nExample can be found at https://github.com/QuartzShard/rusty-dotfiler/blob/main/example-filemap.toml", config_path.display());
-        process::exit(0);
+        return Err(SimpleRunError::new("No files specified.".to_owned()));
     }
     println!("Checking your dotfiles: ");
     let mut all_clear: bool = true;
@@ -151,19 +151,11 @@ fn check(filemap: Filemap, config_path: &Path) -> Result<()> {
     if all_clear {
         Ok(println!("All your dotfiles are linked! Changes made in your dotfiles repo will automatically effect the system."))
     } else {
-        Err({
-            println!(
-                "Some dotfiles aren't hardlinked. Please run again with `install` to link them."
-            );
-            std::io::Error::new(
-                ErrorKind::Other,
-                "Some dotfiles aren't hardlinked. Please run again with `install` to link them.",
-            )
-        })
+        Err(SimpleRunError::UnlinkedFilesFound)
     }
 }
 
-fn configure(mut filemap: Filemap, config_path: &Path) -> Result<()> {
+fn configure(mut filemap: Filemap, config_path: &Path) -> Result<(), SimpleRunError> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut handle = stdout.lock();
@@ -174,10 +166,7 @@ fn configure(mut filemap: Filemap, config_path: &Path) -> Result<()> {
 
     let dir_tree = match read_dir_tree(".") {
         Ok(dir_tree) => dir_tree,
-        Err(_error) => {
-            println!("Can't read the directory tree, aborting.");
-            return Ok(());
-        }
+        Err(_error) => Err(SimpleRunError::FailedToRead),
     };
 
     for path in dir_tree {
@@ -224,11 +213,7 @@ fn configure(mut filemap: Filemap, config_path: &Path) -> Result<()> {
             handle.flush()?;
             Ok(())
         }
-        Err(_) => {
-            writeln!(handle, "Failed to save config at {}", config_path.display())?;
-            handle.flush()?;
-            Err(Error::new(ErrorKind::Other, "Failed to save config."))
-        }
+        Err(_) => Err(SimpleRunError::FailedToSave),
     }
 }
 
@@ -253,21 +238,24 @@ fn clean_path(mut target: String) -> Option<PathBuf> {
     }
 }
 
-fn read_dir_tree(path: &str) -> Result<IntoIter<String>> {
+fn read_dir_tree(path: &str) -> Result<IntoIter<String>, SimpleRunError> {
     let mut paths: Vec<String> = vec![];
     paths = read_dir_tree_branch(Path::new(path), paths)?;
     Ok(paths.into_iter())
 }
 
-fn read_dir_tree_branch(path: &Path, mut paths: Vec<String>) -> Result<Vec<String>> {
+fn read_dir_tree_branch(
+    path: &Path,
+    mut paths: Vec<String>,
+) -> Result<Vec<String>, SimpleRunError> {
     for entry in fs::read_dir(path)? {
         let entrypath = entry?.path();
         if entrypath.is_dir() {
             if &entrypath
                 .file_name()
-                .ok_or(Error::new(ErrorKind::Other, "Invalid Filename"))?
+                .ok_or_else(|| SimpleRunError::InvalidFilename)?
                 .to_str()
-                .ok_or(Error::new(ErrorKind::Other, "Path unparsable"))?[0..1]
+                .ok_or_else(|| SimpleRunError::UnparsableFilepath(entrypath))?[0..1]
                 == "."
             {
                 println!("Skipping hidden dir: {}", entrypath.display());
@@ -278,9 +266,9 @@ fn read_dir_tree_branch(path: &Path, mut paths: Vec<String>) -> Result<Vec<Strin
         }
         if entrypath
             .file_name()
-            .ok_or(Error::new(ErrorKind::Other, "Invalid Filename"))?
+            .ok_or_else(|| SimpleRunError::InvalidFilename)?
             .to_str()
-            .ok_or(Error::new(ErrorKind::Other, "Path unparsable"))?
+            .ok_or_else(|| SimpleRunError::UnparsableFilepath(entrypath))?
             == "filemap.toml"
         {
             continue;
@@ -288,9 +276,48 @@ fn read_dir_tree_branch(path: &Path, mut paths: Vec<String>) -> Result<Vec<Strin
         let pathstr = String::from(
             entrypath
                 .to_str()
-                .ok_or(Error::new(ErrorKind::Other, "Path unparsable"))?,
+                .ok_or_else(|| SimpleRunError::UnparsableFilepath(entrypath))?,
         );
         paths.push(pathstr);
     }
     Ok(paths)
+}
+
+// Error Struct
+
+#[derive(Debug)]
+enum SimpleRunError {
+    UnparsableFilepath(PathBuf),
+    InvalidFilename,
+    FailedToSave,
+    FailedToLink(PathBuf),
+    NoFilesSpecified,
+    FailedToRead,
+    UnlinkedFilesFound,
+}
+
+impl SimpleRunError {
+    fn as_str(&self) -> &'static str {
+        match *self {
+            UnparsableFilepath => "Unparsable filepath specified",
+            InvalidFilename => "Invalid filename",
+            FailedToSave => "Failed to save filemap, chech the directory is accessible and not full.",
+            FailedToLink => "Failed to create link",
+            NoFilesSpecified => "No files specified! Run `rusty-dotfiler configure` to generate a filemap from your dotfiles.",
+            FailedToRead => "Failed to read directory tree.",
+            UnlinkedFilesFound => "Some dotfiles aren't linked! Run `rusty-dotfiler install` to link them."
+        }
+    }
+}
+
+// impl std::error::Error for SimpleRunError {}
+impl fmt::Display for SimpleRunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+impl From<std::io::Error> for SimpleRunError {
+    fn from(io_error: std::io::Error) -> Self {
+        Self::FailedToSave
+    }
 }
